@@ -6,6 +6,8 @@
 
 #include <THC/THC.h>
 
+#include <ATen/Parallel.h>
+#include <ATen/core/ivalue.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
 
@@ -143,6 +145,9 @@ ProcessGroupNCCL::WorkNCCL::WorkNCCL(const std::vector<at::Device>& devices)
   // DEFAULT_FLAGS = cudaEventDisableTiming.
   cudaEvents_.resize(devices.size());
   ncclComms_.resize(devices.size());
+
+  futureWork_ = c10::make_intrusive<c10::ivalue::Future>(
+      c10::ListType::create(c10::TensorType::get()));
 }
 
 ProcessGroupNCCL::WorkNCCL::~WorkNCCL() {}
@@ -660,6 +665,46 @@ std::shared_ptr<ProcessGroupNCCL::WorkNCCL> ProcessGroupNCCL::initWork(
   return std::make_shared<ProcessGroupNCCL::WorkNCCL>(devices);
 }
 
+c10::intrusive_ptr<c10::ivalue::Future> ProcessGroupNCCL::WorkNCCL::
+    getFuture() {
+  return futureWork_;
+}
+
+struct CheckFutureWork {
+  CheckFutureWork(
+      c10::intrusive_ptr<c10::ivalue::Future> futureWork,
+      std::vector<at::Tensor>& outputs)
+      : futureWork_(futureWork), outputs_(outputs), workCounter_(0){};
+
+ public:
+  void markFutureCompleted() {
+    at::launch(([this]() {
+      workCounter_++;
+      if (workCounter_ == outputs_.size()) {
+        futureWork_->markCompleted(at::IValue(outputs_));
+      }
+    }));
+  };
+
+ private:
+  c10::intrusive_ptr<c10::ivalue::Future> futureWork_;
+  std::vector<at::Tensor>& outputs_;
+  std::atomic<int> workCounter_;
+};
+
+void ncclKernelCompletionCallback(
+    cudaStream_t /* unused */,
+    cudaError_t /* unused */,
+    void* userData) {
+  auto castedUserData =
+      dynamic_cast<CheckFutureWork*>((CheckFutureWork*)userData);
+
+  TORCH_CHECK(
+      castedUserData, "Null castedUserData in ncclKernelCompletionCallback.");
+
+  castedUserData->markFutureCompleted();
+};
+
 template <typename Fn, typename PreProcess, typename PostProcess>
 std::shared_ptr<ProcessGroup::Work> ProcessGroupNCCL::collective(
     std::vector<at::Tensor>& inputs,
@@ -697,6 +742,9 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupNCCL::collective(
         inputs[i].storage().data_ptr(), ncclStream);
   }
 
+  auto checkFutObj =
+      std::make_shared<CheckFutureWork>(work->getFuture(), outputs);
+
   {
     AutoNcclGroup nccl_group_guard;
     for (size_t i = 0; i < inputs.size(); ++i) {
@@ -704,6 +752,8 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupNCCL::collective(
       at::cuda::CUDAStream& ncclStream = ncclStreams_[key][i];
       C10D_NCCL_CHECK(
           fn(inputs[i], outputs[i], ncclComms[i]->getNcclComm(), ncclStream));
+      cudaStreamAddCallback(
+          ncclStream, ncclKernelCompletionCallback, checkFutObj.get(), 0);
     }
   }
 

@@ -89,6 +89,9 @@ class ProcessGroup {
 
     virtual void abort();
 
+    // TODO: add documentation to getFuture.
+    virtual c10::intrusive_ptr<c10::ivalue::Future> getFuture();
+
    protected:
     // Completes the work object and optionally sets the exception in a
     // thread-safe manner. Notifies all waiting condition variables as well.

@@ -81,6 +81,8 @@ class ProcessGroupNCCL : public ProcessGroup {
     // execution on the GPUs
     bool finishedGPUExecution();
 
+    c10::intrusive_ptr<c10::ivalue::Future> getFuture() override;
+
    protected:
     // The cached list of CUDA devices to operate on
     std::vector<at::Device> devices_;
@@ -124,6 +126,9 @@ class ProcessGroupNCCL : public ProcessGroup {
     // Reference to the store so that we can write aborted communicators
     // to the store.
     std::shared_ptr<Store> store_;
+
+    // Store a Future object associated with WorkNCCL.
+    c10::intrusive_ptr<c10::ivalue::Future> futureWork_;
 
     friend class ProcessGroupNCCL;
   };

@@ -24,6 +24,7 @@
 #include <torch/csrc/Exceptions.h>
 #include <torch/csrc/distributed/c10d/comm.h>
 #include <torch/csrc/distributed/c10d/reducer.h>
+#include <torch/csrc/jit/python/pybind_utils.h>
 #include <torch/csrc/utils/object_ptr.h>
 #include <torch/csrc/utils/pybind.h>
 
@@ -700,6 +701,13 @@ They are used in specifying strategies for reduction collectives, e.g.,
           "wait",
           &::c10d::ProcessGroup::Work::wait,
           py::arg("timeout") = kNoTimeout,
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "get_future",
+          [](::c10d::ProcessGroup::Work& work)
+              -> std::shared_ptr<jit::PythonFutureWrapper> {
+            return std::make_shared<jit::PythonFutureWrapper>(work.getFuture());
+          },
           py::call_guard<py::gil_scoped_release>());
 
   module.def(
