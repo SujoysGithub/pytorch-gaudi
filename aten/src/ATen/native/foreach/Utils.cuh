@@ -1,6 +1,7 @@
 #pragma once
 #define ILP 4
-
+#define CHUNK_SIZE 65536
+#define BLOCK_SIZE 1024
 namespace {
 
 // TensorListMetadata has to be < 4KB - the limit for kernel launch argument

@@ -45,7 +45,7 @@ struct AddScalarFunctor
 #pragma unroll
                     for(int ii = 0; ii < ILP; ii++)
                     {
-                        r_out[ii] = static_cast<float>(r_x[ii]) + scalar;
+                        r_out[ii] = static_cast<x_t>(r_x[ii]) + scalar;
                     }
                     // store
                     load_store(out, r_out, i_start, 0);
@@ -69,7 +69,7 @@ struct AddScalarFunctor
 #pragma unroll
                     for(int ii = 0; ii < ILP; ii++)
                     {
-                        r_out[ii] = static_cast<float>(r_x[ii]) + scalar;
+                        r_out[ii] = static_cast<x_t>(r_x[ii]) + scalar;
                     }
 #pragma unroll
                     for(int ii = 0; ii < ILP; ii++)
@@ -94,8 +94,8 @@ static std::vector<Tensor> foreach_tensor_add_scalar_kernel_cuda(TensorList tens
   tensor_lists.push_back(tensors.vec());
   tensor_lists.push_back(vec_res);
 
-  AT_DISPATCH_ALL_TYPES_AND3(kBool, kBFloat16, kHalf, tensors[0].scalar_type(), "foreach_tensor_add_scalar_kernel_cuda", [&]() {
-    multi_tensor_apply<2>(BLOCK_SIZE, CHUNK_SIZE, tensor_lists, AddScalarFunctor<scalar_t, scalar_t>(), scalar.to<scalar_t>());
+  AT_DISPATCH_ALL_TYPES_AND_COMPLEX_AND2(kBFloat16, kHalf, tensors[0].scalar_type(), "foreach_tensor_add_scalar_kernel_cuda", [&]() {
+    multi_tensor_apply<2>(tensor_lists, AddScalarFunctor<scalar_t, scalar_t>(), scalar.to<scalar_t>());
   });
   return tensor_lists[1];
 }
