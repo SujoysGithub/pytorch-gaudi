@@ -13,13 +13,11 @@ namespace at { namespace native {
 namespace {
 
 template<typename x_t, typename out_t>
-struct AddScalarFunctor
-{
+struct AddScalarFunctor {
     __device__ void operator() (
         int chunk_size,
         TensorListMetadata<2>& tl,
-        x_t scalar) 
-        {
+        x_t scalar) {
             int tensor_loc = tl.block_to_tensor[blockIdx.x];
             int chunk_idx = tl.block_to_chunk[blockIdx.x];
             int n = tl.sizes[tensor_loc];

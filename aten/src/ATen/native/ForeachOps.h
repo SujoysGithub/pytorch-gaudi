@@ -1,5 +1,3 @@
-// Functions that fill Tensors with constants. Implementations are in Fill.cpp.
-
 #pragma once
 
 #include <ATen/ATen.h>
