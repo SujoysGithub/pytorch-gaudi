@@ -21,7 +21,7 @@ class TestCudaComm(TestCase):
                 for _ in range(N):
                     tensors.append(torch.zeros(H, W, device=d, dtype=dt))
 
-                res = torch.foreach_add(tensors, 1)
+                res = torch._foreach_add(tensors, 1)
                 
                 for t in res: 
                     self.assertEqual(t, torch.ones(H, W, device=d, dtype=dt))

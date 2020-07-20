@@ -27,4 +27,4 @@ __device__ __forceinline__ void load_store(T* dst, T* src, int dst_offset, int s
   ((LT*)dst)[dst_offset] = ((LT*)src)[src_offset];
 }
 
-}
+} // namespace

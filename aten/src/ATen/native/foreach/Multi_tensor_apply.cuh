@@ -1,13 +1,7 @@
-#include <iostream>
-#include <math.h>
 #include <torch/torch.h>
 #include <torch/cuda.h>
-#include <cuda.h>
-#include <cuda_runtime.h>
 #include <ATen/ATen.h>
-#include <ATen/AccumulateType.h>
 #include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/Exceptions.h>
 #include <ATen/native/foreach/Utils.cuh>
 
 namespace at { namespace native {
@@ -29,28 +23,21 @@ template<int depth, typename T, typename... ArgTypes>
 void multi_tensor_apply(
     std::vector<std::vector<at::Tensor>>& tensor_lists,
     T callable,
-    ArgTypes... args) 
-    {
-        // TODO: 
-        // 1. check sizes, dtypes, layouts, depth 
-        // 2. 
+    ArgTypes... args) {
         int n_tensors = tensor_lists[0].size();
         TensorListMetadata<depth> tensorListMeta;
     
         int loc_block_info = 0;
         int loc_tensor_info = 0;
-        for(int t = 0; t < n_tensors; t++) 
-        {   
+        for(int t = 0; t < n_tensors; t++) {   
             tensorListMeta.sizes[loc_tensor_info] = tensor_lists[0][t].numel();
-            for (int d = 0; d < depth; d++) 
-            {
+            for (int d = 0; d < depth; d++) {
                 tensorListMeta.addresses[d][loc_tensor_info] = tensor_lists[d][t].data_ptr();
             }
             loc_tensor_info++;
 
             int chunks = (tensor_lists[0][t].numel() + CHUNK_SIZE - 1)/CHUNK_SIZE;
-            for (int chunk = 0; chunk < chunks; chunk++) 
-            {
+            for (int chunk = 0; chunk < chunks; chunk++) {
                 tensorListMeta.block_to_tensor[loc_block_info] = loc_tensor_info - 1;
                 tensorListMeta.block_to_chunk[loc_block_info] = chunk;
                 loc_block_info++;
@@ -60,8 +47,7 @@ void multi_tensor_apply(
                 bool blocks_full = (loc_block_info == depth_to_max_blocks[depth-1]);
                 bool last_chunk = (t == n_tensors - 1 && chunk == chunks - 1);
     
-                if (tensors_full || blocks_full || last_chunk)
-                {
+                if (tensors_full || blocks_full || last_chunk) {
                     multi_tensor_apply_kernel<<<loc_block_info, BLOCK_SIZE, 0, at::cuda::getCurrentCUDAStream()>>>(
                         tensorListMeta,
                         callable,
@@ -71,15 +57,14 @@ void multi_tensor_apply(
     
                     // Reset.
                     loc_block_info = 0;
-                    if(chunk == chunks - 1)
-                    {
+                    if(chunk == chunks - 1) {
                         loc_tensor_info = 0; 
                     }
-                    else
-                    {
+                    else {
                         tensorListMeta.sizes[0] = tensorListMeta.sizes[loc_tensor_info-1];
-                        for(int d = 0; d < depth; d++)
+                        for(int d = 0; d < depth; d++) {
                             tensorListMeta.addresses[d][0] = tensorListMeta.addresses[d][loc_tensor_info-1];
+                        }
                         loc_tensor_info = 1;
                     }
                 }
