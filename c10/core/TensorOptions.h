@@ -405,6 +405,8 @@ struct C10_API TensorOptions {
             return DispatchKey::XLA;
           case DeviceType::Vulkan:
             return DispatchKey::Vulkan;
+          case DeviceType::HABANA:
+            return DispatchKey::HABANATensorId;
           default:
             AT_ERROR("Unsupported device type for dense layout: ", device().type());
         }
@@ -645,6 +647,8 @@ inline DeviceType computeDeviceType(DispatchKey tid) {
     return DeviceType::XLA;
   } else if (tid == DispatchKey::XLAPreAutograd) {
     return DeviceType::XLA;
+  } else if (tid == DispatchKey::HABANATensorId) {
+    return DeviceType::HABANA;
   } else if (tid == DispatchKey::SparseCPU) {
     return DeviceType::CPU;
   } else if (tid == DispatchKey::SparseCUDA) {

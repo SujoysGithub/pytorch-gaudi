@@ -10,6 +10,10 @@ bool is_cuda(const Tensor& self) {
   return self.is_cuda();
 }
 
+bool is_habana(const Tensor& self) {
+  return self.is_habana();
+}
+
 bool is_distributed(const Tensor& self) {
   return false;
 }

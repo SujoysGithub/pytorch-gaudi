@@ -17,6 +17,13 @@ if(USE_TBB)
 include_directories(${TBB_ROOT_DIR}/include)
 endif()
 
+if (USE_HCL)
+  include_directories($ENV{SYNAPSE_ROOT}/include)
+  include_directories($ENV{ABSEIL_CPP_INCLUDE_DIR})
+  include_directories($ENV{PYTORCH_MODULES_ROOT_PATH}/distributed)
+  include_directories($ENV{PYTORCH_MODULES_ROOT_PATH}/pytorch_helpers)
+endif()
+
 set(TORCH_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(TORCH_ROOT "${TORCH_SRC_DIR}/..")
 

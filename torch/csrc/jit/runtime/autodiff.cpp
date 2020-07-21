@@ -76,6 +76,28 @@ bool isDifferentiable(Node* n) {
         n->is_constant(attr::implicit);
   }
 
+ // If it is convolution or batchnorm then it is differentiable only for HPU
+ // since we want to increase the encapsulation of ops that can
+ // be fused in the Habana Fuser
+ // For all other platforms, it will return false and
+ // not include convolution and batchnorm as a differentiable op
+  if (n->kind() == aten::_convolution || n->kind() == aten::convolution ||
+      n->kind() == aten::native_batch_norm) {
+    auto graph_ = n->owningGraph();
+    auto num_inputs = graph_->inputs().size();
+    for (int input_index = 0; input_index < num_inputs; ++input_index) {
+      if (graph_->inputs()[input_index]->type()->kind() ==
+          c10::TypeKind::TensorType) {
+        auto input_tensor_type = graph_->inputs()[input_index]
+                                     ->type()
+                                     ->cast<torch::jit::TensorType>();
+        if (!input_tensor_type->device()->is_habana()) {
+          return false;
+        }
+      }
+    }
+  }
+
   auto schema = n->maybeSchema();
   if (schema && hasGradientInfoForSchema(*schema)) {
     return true;

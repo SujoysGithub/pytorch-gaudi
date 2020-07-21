@@ -228,8 +228,9 @@ enum DeviceTypeProto {
   PROTO_FPGA = 7;                   // FPGA
   PROTO_MSNPU = 8;                  // MSNPU
   PROTO_XLA = 9;                    // XLA / TPU
+  PROTO_HABANA = 10;                // HABANA / HPU
   // Change the following number if you add more devices in the code.
-  PROTO_COMPILE_TIME_MAX_DEVICE_TYPES = 10;
+  PROTO_COMPILE_TIME_MAX_DEVICE_TYPES = 11;
   PROTO_ONLY_FOR_TEST = 20901;   // This device type is only for test.
 }
 

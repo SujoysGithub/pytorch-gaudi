@@ -81,6 +81,10 @@ struct C10_API Device final {
     return type_ == DeviceType::CUDA;
   }
 
+  bool is_habana() const noexcept{
+   return type_ == DeviceType::HABANA;
+  }
+
   /// Return true if the device is of CPU type.
   bool is_cpu() const noexcept {
     return type_ == DeviceType::CPU;

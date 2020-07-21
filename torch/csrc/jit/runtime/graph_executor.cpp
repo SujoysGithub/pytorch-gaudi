@@ -2,6 +2,7 @@
 
 #include <ATen/core/ivalue.h>
 #include <c10/util/Exception.h>
+#include <c10/core/DeviceType.h>
 #include <torch/csrc/autograd/grad_mode.h>
 #include <torch/csrc/jit/frontend/tracer.h>
 #include <torch/csrc/jit/ir/ir.h>
@@ -556,6 +557,42 @@ struct GraphExecutorImpl : public GraphExecutorImplBase {
     return fallback;
   }
 
+  void set_tensor_type_node(
+      Block* block_,
+      c10::optional<at::Device> hpu_device_type) {
+    for (Node* node : block_->nodes()) {
+      for (Value* node_input : node->inputs()) {
+        if (node_input->type()->kind() == c10::TypeKind::TensorType) {
+          auto node_input_tensor =
+              node_input->type()->cast<torch::jit::TensorType>();
+          node_input_tensor->set_device(hpu_device_type);
+        }
+      }
+      for (Value* node_output : node->outputs()) {
+        if (node_output->type()->kind() == c10::TypeKind::TensorType) {
+          auto node_output_tensor =
+              node_output->type()->cast<torch::jit::TensorType>();
+          node_output_tensor->set_device(hpu_device_type);
+        }
+      }
+    }
+  }
+
+  void set_tensor_type_graph(std::shared_ptr<Graph>& graph_) {
+    auto num_inputs = graph_->inputs().size();
+    for (int input_index = 0; input_index < num_inputs; ++input_index) {
+      if (graph_->inputs()[input_index]->type()->kind() ==
+              c10::TypeKind::TensorType &&
+          this->is_hpu) {
+        auto graph_input_tensor = graph_->inputs()[input_index]
+                                      ->type()
+                                      ->cast<torch::jit::TensorType>();
+        graph_input_tensor->set_device(
+            at::Device(c10::DeviceType::HABANA, (c10::DeviceIndex)(this->device_index)));
+      }
+    }
+  }
+
   const ExecutionPlan& getOrCompile(const Stack& stack) {
     // outside lock guard, to minimize the time holding the lock on the fast
     // path ArgumentSpec even computes its hashCode here.
@@ -569,6 +606,40 @@ struct GraphExecutorImpl : public GraphExecutorImplBase {
             logging::runtime_counters::EXECUTION_PLAN_CACHE_HIT, 1.0);
         return it->second;
       }
+      // Ensure Static types and interpreter types are on the same device
+      // This check is useful for HPU to include ops that Habana supports
+      // to be part of differntiable graph for larger encapsulation and fusion
+      auto graph_ = graph.get();
+      auto num_inputs = graph_->inputs().size();
+      at::ArrayRef<torch::jit::IValue> interp_inputs = last(stack, num_inputs);
+      at::ArrayRef<torch::jit::Value*> static_inputs = graph_->inputs();
+      for (int input_index = 0; input_index < num_inputs; ++input_index) {
+        // Some of the following checks are really not needed
+        // Especially the conditional checks for static and interp inputs
+        // Since we are setting the flag based on interp inputs to the graph,
+        // setting the flag based on interp inputs should suffice
+        // But it is included as an additional sanity check for now
+        //TODO: Remove unwanted checks
+
+        if (interp_inputs[input_index].isTensor() &&
+            (static_inputs[input_index]->type()->kind() ==
+             c10::TypeKind::TensorType)) {
+          if (interp_inputs[input_index].toTensor().is_habana()) {
+            auto hpu_device_obj =
+                interp_inputs[input_index].toTensor().device();
+            auto static_input_tensor_type =
+                static_inputs[input_index]
+                    ->type()
+                    ->cast<torch::jit::TensorType>();
+            static_input_tensor_type->set_device(hpu_device_obj);
+            set_tensor_type_node(graph_->block(), hpu_device_obj);
+            this->is_hpu = true; // Set HPU flag to be true if IValues are on HPU
+            this->device_index = hpu_device_obj.index(); //Get device index and set it
+          }
+        }
+      }
+     // End of static and interpreter type check on device for HPU
+
       auto plan = compileSpec(spec);
       auto r = plan_cache.emplace(std::move(spec), std::move(plan));
       logging::getLogger()->addStatValue(
@@ -581,6 +652,12 @@ struct GraphExecutorImpl : public GraphExecutorImplBase {
     auto opt_graph = graph->copy();
     SOURCE_DUMP("Optimizing the following function:", opt_graph);
     arg_spec_creator_.specializeTypes(*opt_graph, spec);
+
+    // Ensure that the post specialized and refined graph
+    // contains tensor types in the right device
+    // This change is applicable only for HPU and will only
+    // affect runs on HPU
+    set_tensor_type_graph(opt_graph);
 
     // Phase 0. Inline functions, then clean up any artifacts that the inliner
     //          left in that may inhibit optimization
@@ -618,6 +695,7 @@ struct GraphExecutorImpl : public GraphExecutorImplBase {
           autodiff_subgraph_inlining ? autodiffSubgraphNodeThreshold : 1);
       for (Node* dnode : diff_nodes) {
         auto diff_graph = std::move(dnode->g(attr::Subgraph));
+        set_tensor_type_graph(diff_graph);
         Gradient gradient = differentiate(diff_graph);
         // Run post differentiation optimizations, Autodiff will replace some
         // parts of graph with new graph, these new graphs usually consists of
@@ -647,6 +725,9 @@ struct GraphExecutorImpl : public GraphExecutorImplBase {
   // Populated only when optimize is false (and in that case plan_cache will be
   // unused). The compiled version of graph.
   ExecutionPlan fallback;
+
+  bool is_hpu = false;  //Default is CPU
+  int device_index = -1; // Default CPU index is -1
 
   // Mapping from argument configurations to optimized versions of the graph
   // that are specialized to the spec.

@@ -25,6 +25,7 @@ from . import PrefixStore
 _MPI_AVAILABLE = True
 _NCCL_AVAILABLE = True
 _GLOO_AVAILABLE = True
+_HCL_AVAILABLE = True
 
 
 try:
@@ -42,10 +43,15 @@ try:
 except ImportError:
     _GLOO_AVAILABLE = False
 
+try:
+    from. import ProcessGroupHCL
+except ImportError:
+    _HCL_AVAILABLE = False
+
 
 class Backend(object):
     """
-    An enum-like class of available backends: GLOO, NCCL, MPI, and other registered
+    An enum-like class of available backends: GLOO, NCCL, HCL and MPI, and other registered
     backends.
 
     The values of this class are lowercase strings, e.g., ``"gloo"``. They can
@@ -65,6 +71,7 @@ class Backend(object):
     NCCL = "nccl"
     MPI = "mpi"
     TCP = "tcp"
+    HCL = "hcl"
 
     def __new__(cls, name):
         if not isinstance(name, string_classes):
@@ -266,6 +273,13 @@ def is_gloo_available():
 
     """
     return _GLOO_AVAILABLE
+
+def is_hcl_available():
+    """
+    Checks if the HCL backend is available.
+
+    """
+    return _HCL_AVAILABLE
 
 
 def is_initialized():
@@ -513,6 +527,19 @@ def _new_process_group_helper(world_size,
                 world_size,
                 timeout)
             _pg_map[pg] = (Backend.NCCL, store)
+            _pg_names[pg] = group_name
+        elif backend == Backend.HCL:
+            if not is_hcl_available():
+                raise RuntimeError("Distributed package doesn't have HCL "
+                                   "built in")
+            pg = ProcessGroupHCL(
+                prefix_store,
+                rank,
+                world_size,
+                timeout)
+            if not pg:
+                return GroupMember.NON_GROUP_MEMBER
+            _pg_map[pg] = (Backend.HCL, None)
             _pg_names[pg] = group_name
         else:
             pg = getattr(Backend, backend.upper())(

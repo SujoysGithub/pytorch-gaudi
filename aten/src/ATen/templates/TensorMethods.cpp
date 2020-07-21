@@ -88,6 +88,11 @@ bool Tensor::is_cuda() const {
   return impl_->is_cuda();
 }
 
+bool Tensor::is_habana() const {
+  // NB: this is not a native function to avoid dispatching overhead.
+  return impl_->is_habana();
+}
+
 NamedTensorMeta* Tensor::get_named_tensor_meta() {
   return static_cast<NamedTensorMeta*>(impl_->named_tensor_meta());
 }
@@ -107,6 +112,10 @@ bool Tensor::has_names() const {
 
 bool is_cuda(Tensor self) {
   return self.is_cuda();
+}
+
+bool is_habana(Tensor self) {
+  return self.is_habana();
 }
 
 bool Tensor::is_hip() const {

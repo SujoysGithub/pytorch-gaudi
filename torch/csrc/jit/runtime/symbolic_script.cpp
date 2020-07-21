@@ -791,7 +791,7 @@ const std::vector<std::string> functions = {
         def relu(self):
             result = torch.relu(self)
             def backward(grad_output):
-                return grad_output * (result > 0).type_as(result)
+                return torch.threshold_backward(grad_output, result, 0)
 
             return result, backward
 
@@ -989,7 +989,7 @@ const std::vector<std::string> functions = {
             return result, backward
     )",
     R"(
-        def batch_norm_disabled(input : Tensor,
+        def batch_norm(input : Tensor,
                        weight : Optional[Tensor],
                        bias : Optional[Tensor],
                        running_mean : Optional[Tensor],
@@ -1010,6 +1010,54 @@ const std::vector<std::string> functions = {
                     impl_idx, input, grad_output, weight, running_mean, running_var,
                     save1, save2, training, eps, [True, has_weight, has_bias], reserve)
                 return dinput, dweight, dbias, None, None, None, None, None, None
+
+            return output, backward
+
+        def convolution(input : Tensor,
+                       weight : Tensor,
+                       bias : Optional[Tensor],
+                       stride : List[int],
+                       padding: List[int],
+                       dilation: List[int],
+                       transposed: bool,
+                       output_padding: List[int],
+                       groups: int):
+            output = torch.convolution_overrideable(
+                    input, weight, bias, stride, padding, dilation,
+                    transposed, output_padding, groups)
+            has_bias = bias is not None
+
+            def backward(grad_output):
+                dinput, dweight, dbias = torch.convolution_backward_overrideable(
+                        grad_output, input, weight, stride,
+                        padding, dilation, transposed, output_padding, groups, [True, True, has_bias])
+
+                return dinput, dweight, dbias, None, None, None, None, None, None
+
+            return output, backward
+
+        def _convolution(input : Tensor,
+                       weight : Tensor,
+                       bias : Optional[Tensor],
+                       stride : List[int],
+                       padding: List[int],
+                       dilation: List[int],
+                       transposed: bool,
+                       output_padding: List[int],
+                       groups: int,
+                       benchmark: bool,
+                       deterministic: bool,
+                       cudnn_enabled: bool):
+            output = torch.convolution_overrideable(
+                    input, weight, bias, stride, padding, dilation,
+                    transposed, output_padding, groups)
+            has_bias = bias is not None
+
+            def backward(grad_output):
+                dinput, dweight, dbias = torch.convolution_backward_overrideable(
+                        grad_output, input, weight, stride,
+                        padding, dilation, transposed, output_padding, groups, [True, True, has_bias])
+                return dinput, dweight, dbias, None, None, None, None, None, None, None, None, None
 
             return output, backward
 

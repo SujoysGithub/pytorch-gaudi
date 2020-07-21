@@ -29,6 +29,8 @@ std::string DeviceTypeName(DeviceType d, bool lower_case) {
       return lower_case ? "xla" : "XLA";
     case DeviceType::Vulkan:
       return lower_case ? "vulkan" : "VULKAN";
+    case DeviceType::HABANA:
+      return lower_case ? "habana" : "HABANA";
     default:
       AT_ERROR(
           "Unknown device: ",
@@ -62,6 +64,7 @@ bool isValidDeviceType(DeviceType d) {
     case DeviceType::MSNPU:
     case DeviceType::XLA:
     case DeviceType::Vulkan:
+    case DeviceType::HABANA:
       return true;
     default:
       return false;

@@ -42,6 +42,10 @@ class CAFFE2_API DeprecatedTypeProperties {
     return backendToDeviceType(backend_) == kCUDA;
   }
 
+  bool is_habana() const {
+    return backendToDeviceType(backend_) == kHABANA;
+  }
+
   ScalarType scalarType() const {
     return scalar_type_;
   }

@@ -34,6 +34,7 @@ struct PyTensorType {
   THPDtype* dtype;
   THPLayout* layout;
   bool is_cuda;
+  bool is_habana;
   char name[64];
   int backend;
   int scalar_type;
@@ -114,6 +115,14 @@ PyObject *Tensor_is_cuda(PyTensorType* self, void *unused) {
   }
 }
 
+PyObject *Tensor_is_habana(PyTensorType* self, void *unused) {
+  if (self->is_habana) {
+    Py_RETURN_TRUE;
+  } else {
+    Py_RETURN_FALSE;
+  }
+}
+
 PyObject *Tensor_is_sparse(PyTensorType *self, void *unused) {
   if (self->layout->layout == at::Layout::Strided) {
     Py_RETURN_FALSE;
@@ -133,6 +142,7 @@ static struct PyGetSetDef metaclass_properties[] = {
   {"dtype",        (getter)Tensor_dtype, nullptr, nullptr, nullptr},
   {"layout",       (getter)Tensor_layout, nullptr, nullptr, nullptr},
   {"is_cuda",      (getter)Tensor_is_cuda, nullptr, nullptr, nullptr},
+  {"is_habana",      (getter)Tensor_is_habana, nullptr, nullptr, nullptr},
   {"is_sparse",    (getter)Tensor_is_sparse, nullptr, nullptr, nullptr},
   {nullptr}
 };
@@ -214,6 +224,7 @@ static void set_type(PyTensorType& type_obj, Backend backend, ScalarType scalarT
   type_obj.layout = torch::getTHPLayout(layout_from_backend(backend));
   type_obj.dtype = torch::getTHPDtype(scalarType);
   type_obj.is_cuda = (backend == at::Backend::CUDA || backend == at::Backend::SparseCUDA);
+  type_obj.is_habana = (backend == at::Backend::HABANA);
 }
 
 static void set_name(PyTensorType& type_obj, const std::string& name) {

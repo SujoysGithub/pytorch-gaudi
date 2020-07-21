@@ -27,6 +27,11 @@ if(USE_NCCL)
   option(USE_C10D_NCCL "USE C10D NCCL" ON)
 endif()
 
+if(USE_HCL)
+  option(USE_C10D_HCL "USE C10D HCL" ON)
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
+
 if(USE_MPI)
   find_package(MPI)
   if(MPI_FOUND)
@@ -59,6 +64,10 @@ set(C10D_LIBS torch)
 if(USE_C10D_NCCL)
   list(APPEND C10D_SRCS ProcessGroupNCCL.cpp NCCLUtils.cpp)
   list(APPEND C10D_LIBS __caffe2_nccl)
+endif()
+
+if(USE_C10D_HCL)
+  list(APPEND C10D_SRCS ProcessGroupHCL.cpp )
 endif()
 
 if(USE_C10D_MPI)
@@ -109,6 +118,10 @@ if(USE_C10D_NCCL)
   target_compile_definitions(c10d INTERFACE USE_C10D_NCCL)
 endif()
 
+if(USE_C10D_HCL)
+  target_compile_definitions(c10d INTERFACE USE_C10D_HCL)
+endif()
+
 if(USE_C10D_MPI)
   target_compile_definitions(c10d INTERFACE USE_C10D_MPI)
 endif()
@@ -133,6 +146,18 @@ endif()
 if(USE_C10D_NCCL)
   copy_header(ProcessGroupNCCL.hpp)
   copy_header(NCCLUtils.hpp)
+endif()
+
+if(USE_C10D_HCL)
+  add_library(Distributed SHARED IMPORTED)
+  set_target_properties(Distributed PROPERTIES
+  IMPORTED_LOCATION "$ENV{BUILD_ROOT_LATEST}/libhabana_pytorch_distributed_plugin.so"
+  INTERFACE_INCLUDE_DIRECTORIES "$ENV{SYNAPSE_ROOT}/include;$ENV{PYTORCH_MODULES_ROOT_PATH}/pytorch_helpers;$ENV{ABSEIL_CPP_INCLUDE_DIR};$ENV{PYTORCH_MODULES_ROOT_PATH}/distributed"
+  )
+
+  target_link_libraries(c10d PRIVATE "${C10D_LIBS}" Distributed)
+  target_include_directories(c10d PRIVATE ${CMAKE_SOURCE_DIR})
+  copy_header(ProcessGroupHCL.hpp)
 endif()
 
 if(USE_C10D_MPI)

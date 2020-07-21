@@ -29,6 +29,7 @@ enum class Backend {
   CPU,
   CUDA,
   HIP,
+  HABANA,
   FPGA,
   SparseCPU,
   SparseCUDA,
@@ -70,6 +71,8 @@ static inline Backend toDense(Backend b) {
       return Backend::CUDA;
     case Backend::HIP:
       return Backend::HIP;
+    case Backend::HABANA:
+      return Backend::HABANA;
     case Backend::FPGA:
       return Backend::FPGA;
     case Backend::MSNPU:
@@ -98,6 +101,8 @@ static inline Backend dispatchKeyToBackend(DispatchKey t) {
     return Backend::CUDA;
   } else if (t == DispatchKey::HIP) {
     return Backend::HIP;
+  } else if (t == DispatchKey::HABANATensorId) {
+    return Backend::HABANA;
   } else if (t == DispatchKey::FPGA) {
     return Backend::FPGA;
   } else if (t == DispatchKey::MSNPU) {
@@ -133,6 +138,8 @@ static inline DispatchKey backendToDispatchKey(Backend b) {
       return DispatchKey::CUDA;
     case Backend::HIP:
       return DispatchKey::HIP;
+    case Backend::HABANA:
+      return DispatchKey::HABANATensorId;
     case Backend::FPGA:
       return DispatchKey::FPGA;
     case Backend::MSNPU:
@@ -168,6 +175,8 @@ static inline DeviceType backendToDeviceType(Backend b) {
       return DeviceType::CUDA;
     case Backend::HIP:
       return DeviceType::HIP;
+    case Backend::HABANA:
+      return DeviceType::HABANA;
     case Backend::FPGA:
       return DeviceType::FPGA;
     case Backend::MSNPU:
@@ -201,6 +210,8 @@ static inline Backend backendToCPU(Backend b) {
     case Backend::CUDA:
       return Backend::CPU;
     case Backend::HIP:
+      return Backend::CPU;
+    case Backend::HABANA:
       return Backend::CPU;
     case Backend::FPGA:
       return Backend::CPU;
@@ -275,6 +286,8 @@ static inline const char* toString(Backend b) {
       return "CUDA";
     case Backend::HIP:
       return "HIP";
+    case Backend::HABANA:
+      return "HABANA";
     case Backend::FPGA:
       return "FPGA";
     case Backend::MSNPU:

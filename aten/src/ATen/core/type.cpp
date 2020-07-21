@@ -976,6 +976,7 @@ const SymbolicShape& TensorType::symbolic_sizes() const {
 
 bool TensorType::isSubtypeOfExt(const TypePtr rhs, std::ostream* why_not) const {
   if (auto rhs_p = rhs->cast<TensorType>()) {
+    rhs_p->set_device(device());
     // if we have the same pointer, avoid computing the merge
     if (this == rhs_p.get()) {
       return true;

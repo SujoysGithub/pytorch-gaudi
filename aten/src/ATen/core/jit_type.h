@@ -636,6 +636,11 @@ struct CAFFE2_API TensorType : public Type {
   c10::optional<at::Device> device() const {
     return device_;
   }
+  void set_device(c10::optional<at::Device> device) {
+    if (device) {
+      device_ = device;
+    }
+  }
   c10::optional<at::ScalarType> scalarType() const {
     return scalar_type_;
   }

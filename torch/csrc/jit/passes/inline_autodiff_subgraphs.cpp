@@ -13,7 +13,7 @@ namespace jit {
 bool canRunWithAutograd(Node* node) {
   auto kind = node->kind();
   return kind != prim::FusionGroup && kind != prim::CudaFusionGroup &&
-      (kind.is_aten() || kind.is_prim());
+      kind != prim::HabanaFusedOp && (kind.is_aten() || kind.is_prim());
 }
 
 namespace {

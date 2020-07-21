@@ -308,6 +308,9 @@ class CAFFE2_API Tensor {
   /// Returns if a `Tensor` has CUDA backend.
   bool is_cuda() const;
 
+  /// Returns if a `Tensor` has HABANA backend.
+  bool is_habana() const;
+
   /// Returns if a `Tensor` has HIP backend.
   bool is_hip() const;
 

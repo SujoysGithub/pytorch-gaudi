@@ -16,6 +16,10 @@
 #include <c10d/ProcessGroupMPI.hpp>
 #endif
 
+#ifdef USE_C10D_HCL
+#include <c10d/ProcessGroupHCL.hpp>
+#endif
+
 #include <c10d/PrefixStore.hpp>
 #include <c10d/ProcessGroupRoundRobin.hpp>
 #include <c10d/TCPStore.hpp>
@@ -683,6 +687,21 @@ They are used in specifying strategies for reduction collectives, e.g.,
   processGroupMPI.def_static("create", [](std::vector<int> ranks) {
     return ::c10d::ProcessGroupMPI::createProcessGroupMPI(ranks);
   });
+#endif
+
+#ifdef USE_C10D_HCL
+  shared_ptr_class_<::c10d::ProcessGroupHCL>(
+      module, "ProcessGroupHCL", processGroup)
+      .def(
+          py::init<
+              const std::shared_ptr<::c10d::Store>&,
+              int,
+              int,
+              const std::chrono::milliseconds&>(),
+          py::arg("store"),
+          py::arg("rank"),
+          py::arg("size"),
+          py::arg("timeout") = std::chrono::milliseconds(10 * 1000));
 #endif
 
   shared_ptr_class_<::c10d::ProcessGroup::Work>(module, "Work")

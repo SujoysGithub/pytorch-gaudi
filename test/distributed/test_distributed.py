@@ -54,6 +54,8 @@ INIT_METHOD = os.getenv("INIT_METHOD", "env://")
 DEFAULT_TIMEOUT = 300
 CUSTOMIZED_TIMEOUT = {"test_DistributedDataParallel": 500}
 
+if BACKEND == "hcl":
+    torch.ops.load_library(os.environ.get("BUILD_ROOT_LATEST") + "/libhabana_pytorch_plugin.so")
 
 class _FC2(nn.Module):
     def __init__(self):
@@ -146,6 +148,8 @@ def require_backends_available(backends):
             return dist.is_nccl_available()
         if backend == dist.Backend.MPI:
             return dist.is_mpi_available()
+        if backend == dist.Backend.HCL:
+            return dist.is_hcl_available()
         return False
     backends = map(lambda b: dist.Backend(b), backends)
     if not all(map(check, backends)):
@@ -321,6 +325,7 @@ class _DistTestBase(object):
             self.assertNotIn(line, lines)
 
     # GET RANK
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_get_rank(self):
         test_dir = os.path.join(TEMP_DIR, "test_dir")
         pid = str(os.getpid())
@@ -344,6 +349,7 @@ class _DistTestBase(object):
 
         self._barrier()
 
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_get_backend(self):
         if dist.get_world_size() > 2:
             group = [1, 2]
@@ -375,6 +381,7 @@ class _DistTestBase(object):
             dist.Backend(["gloo"])
 
     # Test destroy
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_destroy_group(self):
         if dist.get_world_size() > 2:
             group = [1, 2]
@@ -385,6 +392,7 @@ class _DistTestBase(object):
         dist.destroy_process_group(group_id)
 
     # Test get rank and size of group
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_get_rank_size_group(self):
         if dist.get_world_size() > 2:
             group = [1, 2]
@@ -399,12 +407,14 @@ class _DistTestBase(object):
             self.assertEqual(dist.get_rank(group_id), -1)
 
     # Test destroy full groups
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_destroy_full_group(self):
         _, group_id, _ = self._init_full_group_test()
         self._barrier()
         dist.destroy_process_group(group_id)
 
     # Test get rank and size of full group
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_get_rank_size_full_group(self):
         _, group_id, _ = self._init_full_group_test()
         self.assertEqual(dist.get_world_size(group_id), dist.get_world_size())
@@ -511,6 +521,9 @@ class _DistTestBase(object):
         rank = dist.get_rank()
         tensor = _build_tensor(rank + 1)
 
+        if dist.get_backend() == "hcl":
+            tensor = tensor.to("habana")
+
         for src in range(0, dist.get_world_size()):
             if src == rank:
                 # Send mode
@@ -522,8 +535,10 @@ class _DistTestBase(object):
                 # Recv mode
                 expected_tensor = _build_tensor(src + 1)
                 output_tensor = _build_tensor(src + 1, value=-1)
+                if dist.get_backend() == "hcl":
+                    output_tensor = output_tensor.to("habana")
                 dist.recv(output_tensor, src)
-                self.assertEqual(output_tensor, expected_tensor)
+                self.assertEqual(output_tensor.to("cpu"), expected_tensor.to("cpu"))
 
         self._barrier()
 
@@ -531,6 +546,7 @@ class _DistTestBase(object):
     @unittest.skipIf(
         BACKEND == "nccl", "Nccl does not support send/recv from any source"
     )
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support send/recv from any source")
     def test_send_recv_any_source(self):
         rank = dist.get_rank()
         tensor = _build_tensor(10, value=rank)
@@ -564,6 +580,9 @@ class _DistTestBase(object):
         world_size = dist.get_world_size()
         tensor = _build_tensor(10, value=rank)
 
+        if dist.get_backend() == "hcl":
+            tensor = tensor.to("habana")
+
         for dst in range(0, world_size):
             if dst == rank:
                 # Recv mode
@@ -571,14 +590,17 @@ class _DistTestBase(object):
                     if src == rank:
                         continue
                     output_tensor = _build_tensor(10, value=-1)
+                    if dist.get_backend() == "hcl":
+                        output_tensor = output_tensor.to("habana")
                     dist.recv(output_tensor, src, tag=src)
-                    self.assertTrue(output_tensor.eq(src).all())
+                    self.assertTrue(output_tensor.to("cpu").eq(src).all())
             else:
                 # Send mode
                 dist.send(tensor, dst, tag=rank)
 
     # ISEND
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support isend")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support isend")
     def test_isend(self):
         rank = dist.get_rank()
         world_size = dist.get_world_size()
@@ -600,6 +622,7 @@ class _DistTestBase(object):
 
     # IRECV
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support irecv")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support irecv")
     def test_irecv(self):
         rank = dist.get_rank()
         world_size = dist.get_world_size()
@@ -623,39 +646,49 @@ class _DistTestBase(object):
 
     # BROADCAST
     def _test_broadcast_helper(
-        self, group, group_id, rank, cuda=False, rank_to_GPU=None
+        self, group, group_id, rank, cuda=False, rank_to_GPU=None, backend_habana=False
     ):
-        for dtype, value, requires_cuda in [
-            (torch.float, -1e-10, False),
-            (torch.double, -1e-100, False),
-            (torch.half, -0.1, True),
-            (torch.int8, -2, False),
-            (torch.uint8, 129, False),
-            (torch.int, -1e5, False),
-            (torch.long, -1e15, False),
+        for dtype, value, requires_cuda, supports_habana in [
+            (torch.float, -1e-10, False, True),
+            (torch.double, -1e-100, False, False),
+            (torch.half, -0.1, True, True),
+            (torch.int8, -2, False, True),
+            (torch.uint8, 129, False, True),
+            (torch.int, -1e5, False, True),
+            (torch.long, -1e15, False, False),
         ]:
             if requires_cuda and not cuda:
                 continue
+            if backend_habana and not supports_habana:
+                continue
+
             for src in group:
                 expected_tensor = _build_tensor(src + 1, value, dtype)
                 if cuda:
                     expected_tensor = expected_tensor.cuda(rank_to_GPU[rank][0])
+                elif dist.get_backend() == "hcl":
+                    expected_tensor = expected_tensor.to("habana")
                 if rank == src:
                     dist.broadcast(expected_tensor, src, group_id)
                 else:
                     tensor = _build_tensor(src + 1, -1, dtype)
                     if cuda:
                         tensor = tensor.cuda(rank_to_GPU[rank][0])
+                    elif dist.get_backend() == "hcl":
+                        tensor = tensor.to("habana")
                     dist.broadcast(tensor, src, group_id)
                     self.assertEqual(tensor.size(), expected_tensor.size())
-                    self.assertEqual(tensor.ne(expected_tensor).max(), torch.tensor(False))
+                    self.assertEqual(tensor.to("cpu").ne(expected_tensor.to("cpu")).max(), torch.tensor(False))
 
         self._barrier()
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
     def test_broadcast(self):
         group, group_id, rank = self._init_global_test()
-        self._test_broadcast_helper(group, group_id, rank)
+        if BACKEND == "hcl" :
+            self._test_broadcast_helper(group, group_id, rank,False,None,True)
+        else:
+            self._test_broadcast_helper(group, group_id, rank)
 
     @unittest.skipIf(
         BACKEND != "gloo" and BACKEND != "nccl",
@@ -669,11 +702,13 @@ class _DistTestBase(object):
 
     @skip_if_small_worldsize
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_broadcast_group(self):
         group, group_id, rank = self._init_group_test()
         self._test_broadcast_helper(group, group_id, rank)
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_broadcast_full_group(self):
         group, group_id, rank = self._init_full_group_test()
         self._test_broadcast_helper(group, group_id, rank)
@@ -696,12 +731,16 @@ class _DistTestBase(object):
                 tensor = _build_tensor(src + 1).fill_(master_value)
                 if cuda:
                     tensor = tensor.cuda(rank_to_GPU[rank][0])
+                elif dist.get_backend() == "hcl":
+                    tensor = tensor.to("habana")
                 dist.reduce(tensor, src, op, group_id)
-                self.assertEqual(tensor, _build_tensor(src + 1, expected_value))
+                self.assertEqual(tensor.to("cpu"), _build_tensor(src + 1, expected_value))
             else:
                 tensor = _build_tensor(src + 1).fill_(worker_value)
                 if cuda:
                     tensor = tensor.cuda(rank_to_GPU[rank][0])
+                elif dist.get_backend() == "hcl":
+                    tensor = tensor.to("habana")
                 dist.reduce(tensor, src, op, group_id)
 
         self._barrier()
@@ -751,16 +790,19 @@ class _DistTestBase(object):
         )
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_reduce_min(self):
         group, group_id, rank = self._init_global_test()
         self._test_reduce_helper(group, group_id, rank, dist.ReduceOp.MIN, 1010, 1, 1)
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_reduce_max(self):
         group, group_id, rank = self._init_global_test()
         self._test_reduce_helper(group, group_id, rank, dist.ReduceOp.MAX, -1, 10, 10)
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     @skip_if_small_worldsize
     def test_reduce_group_sum(self):
         group, group_id, rank = self._init_group_test()
@@ -775,6 +817,7 @@ class _DistTestBase(object):
         )
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     @skip_if_small_worldsize
     def test_reduce_group_product(self):
         group, group_id, rank = self._init_group_test()
@@ -789,18 +832,21 @@ class _DistTestBase(object):
         )
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     @skip_if_small_worldsize
     def test_reduce_group_min(self):
         group, group_id, rank = self._init_group_test()
         self._test_reduce_helper(group, group_id, rank, dist.ReduceOp.MIN, 1010, 1, 1)
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     @skip_if_small_worldsize
     def test_reduce_group_max(self):
         group, group_id, rank = self._init_group_test()
         self._test_reduce_helper(group, group_id, rank, dist.ReduceOp.MAX, -1, 10, 10)
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_reduce_full_group_sum(self):
         group, group_id, rank = self._init_full_group_test()
         self._test_reduce_helper(
@@ -814,6 +860,7 @@ class _DistTestBase(object):
         )
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_reduce_full_group_product(self):
         group, group_id, rank = self._init_full_group_test()
         self._test_reduce_helper(
@@ -827,11 +874,13 @@ class _DistTestBase(object):
         )
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_reduce_full_group_min(self):
         group, group_id, rank = self._init_full_group_test()
         self._test_reduce_helper(group, group_id, rank, dist.ReduceOp.MIN, 1010, 1, 1)
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_reduce_full_group_max(self):
         group, group_id, rank = self._init_full_group_test()
         self._test_reduce_helper(group, group_id, rank, dist.ReduceOp.MAX, -1, 10, 10)
@@ -854,14 +903,19 @@ class _DistTestBase(object):
                 tensor = _build_tensor(src + 1).fill_(master_value)
                 if cuda:
                     tensor = tensor.cuda(rank_to_GPU[rank][0])
+                elif dist.get_backend() == "hcl":
+                    tensor = tensor.to("habana")
                 dist.all_reduce(tensor, op, group_id)
-                self.assertEqual(tensor, _build_tensor(src + 1, expected_value))
+                #copy the tensor to cpu still the support for sub kernel is added
+                self.assertEqual(tensor.to("cpu"), _build_tensor(src + 1, expected_value))
             else:
                 tensor = _build_tensor(src + 1).fill_(worker_value)
                 if cuda:
                     tensor = tensor.cuda(rank_to_GPU[rank][0])
+                elif dist.get_backend() == "hcl":
+                    tensor = tensor.to("habana")
                 dist.all_reduce(tensor, op, group_id)
-                self.assertEqual(tensor, _build_tensor(src + 1, expected_value))
+                self.assertEqual(tensor.to("cpu"), _build_tensor(src + 1, expected_value))
 
         self._barrier()
 
@@ -898,7 +952,7 @@ class _DistTestBase(object):
             rank_to_GPU,
         )
 
-    @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "nccl" or BACKEND == "hcl", "Nccl and Hcl does not support CPU tensors")
     def test_all_reduce_product(self):
         group, group_id, rank = self._init_global_test()
         self._test_all_reduce_helper(
@@ -911,14 +965,14 @@ class _DistTestBase(object):
             reduce((lambda x, y: x * y), [10] * (len(group) - 1), 2),
         )
 
-    @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "nccl" or BACKEND == "hcl", "Nccl and Hcl does not support CPU tensors")
     def test_all_reduce_min(self):
         group, group_id, rank = self._init_global_test()
         self._test_all_reduce_helper(
             group, group_id, rank, dist.ReduceOp.MIN, 1010, 1, 1
         )
 
-    @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "nccl" or BACKEND == "hcl", "Nccl and Hcl does not support CPU tensors")
     def test_all_reduce_max(self):
         group, group_id, rank = self._init_global_test()
         self._test_all_reduce_helper(
@@ -926,7 +980,7 @@ class _DistTestBase(object):
         )
 
     @skip_if_small_worldsize
-    @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "nccl" or BACKEND == "hcl", "Nccl and Hcl does not support CPU tensors")
     def test_all_reduce_group_sum(self):
         group, group_id, rank = self._init_group_test()
         self._test_all_reduce_helper(
@@ -940,7 +994,7 @@ class _DistTestBase(object):
         )
 
     @skip_if_small_worldsize
-    @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "nccl" or BACKEND == "hcl", "Nccl and Hcl does not support CPU tensors")
     def test_all_reduce_group_product(self):
         group, group_id, rank = self._init_group_test()
         self._test_all_reduce_helper(
@@ -954,7 +1008,7 @@ class _DistTestBase(object):
         )
 
     @skip_if_small_worldsize
-    @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "nccl" or BACKEND == "hcl", "Nccl and Hcl does not support CPU tensors")
     def test_all_reduce_group_min(self):
         group, group_id, rank = self._init_group_test()
         self._test_all_reduce_helper(
@@ -962,14 +1016,14 @@ class _DistTestBase(object):
         )
 
     @skip_if_small_worldsize
-    @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "nccl" or BACKEND == "hcl", "Nccl and Hcl does not support CPU tensors")
     def test_all_reduce_group_max(self):
         group, group_id, rank = self._init_group_test()
         self._test_all_reduce_helper(
             group, group_id, rank, dist.ReduceOp.MAX, -1, 10, 10
         )
 
-    @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "nccl" or BACKEND == "hcl", "Nccl and Hcl does not support CPU tensors")
     def test_all_reduce_full_group_sum(self):
         group, group_id, rank = self._init_full_group_test()
         self._test_all_reduce_helper(
@@ -982,7 +1036,7 @@ class _DistTestBase(object):
             2 + (10 * (len(group) - 1)),
         )
 
-    @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "nccl" or BACKEND == "hcl", "Nccl and Hcl does not support CPU tensors")
     def test_all_reduce_full_group_product(self):
         group, group_id, rank = self._init_full_group_test()
         self._test_all_reduce_helper(
@@ -995,14 +1049,14 @@ class _DistTestBase(object):
             reduce((lambda x, y: x * y), [10] * (len(group) - 1), 2),
         )
 
-    @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "nccl" or BACKEND == "hcl", "Nccl and Hcl does not support CPU tensors")
     def test_all_reduce_full_group_min(self):
         group, group_id, rank = self._init_full_group_test()
         self._test_all_reduce_helper(
             group, group_id, rank, dist.ReduceOp.MIN, 1010, 1, 1
         )
 
-    @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "nccl" or BACKEND == "hcl", "Nccl and Hcl does not support CPU tensors")
     def test_all_reduce_full_group_max(self):
         group, group_id, rank = self._init_full_group_test()
         self._test_all_reduce_helper(
@@ -1262,7 +1316,7 @@ class _DistTestBase(object):
 
         self._barrier()
 
-    @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_scatter_checks(self):
         group, group_id, rank = self._init_global_test()
         one = torch.ones([1])
@@ -1286,17 +1340,20 @@ class _DistTestBase(object):
         self.assertEqual(output, one * rank)
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support scatter")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_scatter(self):
         group, group_id, rank = self._init_global_test()
         self._test_scatter_helper(group, group_id, rank)
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support scatter")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     @skip_if_small_worldsize
     def test_scatter_group(self):
         group, group_id, rank = self._init_group_test()
         self._test_scatter_helper(group, group_id, rank)
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support scatter")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_scatter_full_group(self):
         group, group_id, rank = self._init_full_group_test()
         self._test_scatter_helper(group, group_id, rank)
@@ -1317,6 +1374,7 @@ class _DistTestBase(object):
         self._barrier()
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_gather_checks(self):
         group, group_id, rank = self._init_global_test()
         one = torch.ones([1])
@@ -1340,17 +1398,20 @@ class _DistTestBase(object):
             dist.gather(one * rank)
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_gather(self):
         group, group_id, rank = self._init_global_test()
         self._test_gather_helper(group, group_id, rank)
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     @skip_if_small_worldsize
     def test_gather_group(self):
         group, group_id, rank = self._init_group_test()
         self._test_gather_helper(group, group_id, rank)
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_gather_full_group(self):
         group, group_id, rank = self._init_full_group_test()
         self._test_gather_helper(group, group_id, rank)
@@ -1374,6 +1435,7 @@ class _DistTestBase(object):
         self._barrier()
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_all_gather(self):
         group, group_id, rank = self._init_global_test()
         self._test_all_gather_helper(group, group_id, rank)
@@ -1388,11 +1450,13 @@ class _DistTestBase(object):
 
     @skip_if_small_worldsize
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_all_gather_group(self):
         group, group_id, rank = self._init_group_test()
         self._test_all_gather_helper(group, group_id, rank)
 
     @unittest.skipIf(BACKEND == "nccl", "Nccl does not support CPU tensors")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_all_gather_full_group(self):
         group, group_id, rank = self._init_full_group_test()
         self._test_all_gather_helper(group, group_id, rank)
@@ -1451,6 +1515,7 @@ class _DistTestBase(object):
         self._barrier()
 
     @unittest.skipIf(BACKEND == "nccl", "all_gather_coalesced does not support NCCL")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     @unittest.skipIf(BACKEND == "mpi", "all_gather_coalesced does not support MPI")
     def test_all_gather_coalesced_simple(self):
         group, group_id, rank = self._init_global_test()
@@ -1458,18 +1523,21 @@ class _DistTestBase(object):
 
     @skip_if_small_worldsize
     @unittest.skipIf(BACKEND == "nccl", "all_gather_coalesced does not support NCCL")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     @unittest.skipIf(BACKEND == "mpi", "all_gather_coalesced does not support MPI")
     def test_all_gather_coalesced_group(self):
         group, group_id, rank = self._init_group_test()
         self._test_all_gather_coalesced_helper(group, group_id, rank)
 
     @unittest.skipIf(BACKEND == "nccl", "all_gather_coalesced does not support NCCL")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     @unittest.skipIf(BACKEND == "mpi", "all_gather_coalesced does not support MPI")
     def test_all_gather_coalesced_full_group(self):
         group, group_id, rank = self._init_full_group_test()
         self._test_all_gather_coalesced_helper(group, group_id, rank)
 
     @unittest.skipIf(BACKEND == "nccl", "all_gather_coalesced does not support NCCL")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     @unittest.skipIf(BACKEND == "mpi", "all_gather_coalesced does not support MPI")
     def test_all_gather_coalesced_with_empty(self):
         group, group_id, rank = self._init_global_test()
@@ -1620,6 +1688,7 @@ class _DistTestBase(object):
 
     @skip_if_no_gpu
     @unittest.skipIf(BACKEND == "mpi", "MPI doesn't supports GPU barrier")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_barrier_cuda(self):
         group, group_id, rank = self._init_global_test()
         rank_to_GPU = self._init_multigpu_helper()
@@ -1628,6 +1697,7 @@ class _DistTestBase(object):
     @skip_if_small_worldsize
     @skip_if_no_gpu
     @unittest.skipIf(BACKEND == "mpi", "MPI doesn't supports GPU barrier")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     @skip_if_rocm
     def test_barrier_group_cuda(self):
         group, group_id, rank = self._init_group_test()
@@ -1637,23 +1707,27 @@ class _DistTestBase(object):
     @skip_if_small_worldsize
     @skip_if_no_gpu
     @unittest.skipIf(BACKEND == "mpi", "MPI doesn't supports GPU barrier")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_barrier_full_group_cuda(self):
         group, group_id, rank = self._init_full_group_test()
         rank_to_GPU = self._init_multigpu_helper()
         self._test_barrier_helper(group, group_id, rank, True, rank_to_GPU)
 
     @unittest.skipIf(BACKEND == "nccl", "NCCL does not support CPU barrier")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_barrier(self):
         group, group_id, rank = self._init_global_test()
         self._test_barrier_helper(group, group_id, rank)
 
     @skip_if_small_worldsize
     @unittest.skipIf(BACKEND == "nccl", "NCCL does not support CPU barrier")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_barrier_group(self):
         group, group_id, rank = self._init_group_test()
         self._test_barrier_helper(group, group_id, rank)
 
     @unittest.skipIf(BACKEND == "nccl", "NCCL does not support CPU barrier")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     def test_barrier_full_group(self):
         group, group_id, rank = self._init_full_group_test()
         self._test_barrier_helper(group, group_id, rank)
@@ -1674,6 +1748,7 @@ class _DistTestBase(object):
 
     @unittest.skipIf(BACKEND == "mpi", "MPI doesn't support broadcast multigpu")
     @unittest.skipIf(BACKEND == "nccl", "NCCL broadcast multigpu skipped")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     @skip_if_no_gpu
     def test_broadcast_multigpu(self):
         group, group_id, rank = self._init_global_test()
@@ -1712,6 +1787,7 @@ class _DistTestBase(object):
 
     @unittest.skipIf(BACKEND == "mpi", "MPI doesn't support broadcast multigpu")
     @unittest.skipIf(BACKEND == "nccl", "CUDA all_reduce multigpu skipped for NCCL")
+    @unittest.skipIf(BACKEND == "hcl", "HCL does not support CPU tensors")
     @skip_if_no_gpu
     def test_all_reduce_multigpu(self):
         group, group_id, rank = self._init_global_test()
@@ -1824,13 +1900,14 @@ class _DistTestBase(object):
     def _test_DDP_helper(self, model, input_var, target, loss, scale_factor=1.0):
         model.train()
         output = model(input_var)
+        #Support for MSE Loss not yet added
         l = loss(output, target) * scale_factor
         l.backward()
 
     def _assert_equal_param(self, param_gpu, param_DDP):
         self.assertEqual(len(param_gpu), len(param_DDP))
         for p_gpu, p_DDP in zip(param_gpu, param_DDP):
-            self.assertEqual(p_gpu, p_DDP)
+            self.assertEqual(p_gpu.to("cpu"), p_DDP.to("cpu"))
 
     def _test_DDP_5iter(
         self, model_base, model_DDP, input, target, loss, local_bs, rank, batch_size, test_save, offset=None, world_size=0
@@ -1851,6 +1928,8 @@ class _DistTestBase(object):
                 world_size * local_bs / batch_size if world_size != 0 else 1,
             )
 
+            model_base_grad = [param.grad for param in model_base.parameters() if param.grad is not None]
+            model_DDP_grad = [param.grad for param in model_DDP.module.parameters() if param.grad is not None]
             # Update weights and run a second iteration to shake out errors
             self._model_step(model_base)
             self._model_step(model_DDP)
@@ -1859,7 +1938,7 @@ class _DistTestBase(object):
             )
 
             # Shuffle the input so that DDP input is different
-            input = input[torch.randperm(batch_size)]
+            input = input.to("cpu")[torch.randperm(batch_size)].to("habana")
 
             # save the model in the middle and reload
             if test_save and idx == 2 and INIT_METHOD.startswith("file://"):
@@ -1917,7 +1996,7 @@ class _DistTestBase(object):
         self._barrier()
 
     @unittest.skipIf(
-        BACKEND == "nccl", "nccl does not support DDP on CPU models"
+        BACKEND == "nccl" or BACKEND == "hcl", "nccl does not support DDP on CPU models"
     )
     def test_DistributedDataParallelCPU(self):
         # Run a simple end to end DDP-CPU model, use result of single node
@@ -2002,6 +2081,22 @@ class _DistTestBase(object):
         # test device_ids
         gpus = list(map(lambda i: torch.device('cuda:' + str(i)), gpus))
         self._test_DistributedDataParallel(gpu_subset=gpus, rank=rank, output_device=torch.device('cuda'))
+
+    def test_DistributedDataParallelHabana(self):
+        group, group_id, rank = self._init_global_test()
+        model_base = copy.deepcopy(DDP_NET)
+
+        model_base = model_base.to(device="habana")
+        model_DDP = copy.deepcopy(model_base)
+        model_DDP = nn.parallel.DistributedDataParallel(model_DDP)
+
+        local_bs = 2
+        global_bs, input_data, target, loss = self._prepare_dummy_data(local_bs)
+
+        self._test_DDP_5iter(
+             model_base, model_DDP, input_data.to("habana"), target.to("habana"), loss, local_bs, rank, global_bs, False
+        )
+        self._barrier()
 
     def _test_DistributedDataParallel_SyncBatchNorm(self, gpu_subset, rank, local_bs, global_bs, offset, output_device=None):
         # Run a simple end to end DDP model, use result of single node model
@@ -2249,7 +2344,7 @@ class _DistTestBase(object):
         process_group_sync = res50_model_sync.layer1[0].bn1.process_group
         self.assertEqual(process_group_sync, process_group)
 
-if BACKEND == "gloo" or BACKEND == "nccl":
+if BACKEND == "gloo" or BACKEND == "nccl" or BACKEND == "hcl":
     WORLD_SIZE = os.environ["WORLD_SIZE"]
 
     class TestDistBackend(MultiProcessTestCase, _DistTestBase):

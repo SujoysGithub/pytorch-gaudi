@@ -77,6 +77,9 @@ struct CAFFE2_API DispatchStub<rT (*)(Args...), T> {
     } else if (device_type == DeviceType::CUDA) {
       AT_ASSERTM(cuda_dispatch_ptr, "DispatchStub: missing CUDA kernel");
       return (*cuda_dispatch_ptr)(std::forward<ArgTypes>(args)...);
+    } else if (device_type == DeviceType::HABANA) {
+      AT_ASSERTM(habana_dispatch_ptr, "DispatchStub: missing HABANA kernel");
+      return (*habana_dispatch_ptr)(std::forward<ArgTypes>(args)...);
     } else if (device_type == DeviceType::HIP) {
       AT_ASSERTM(hip_dispatch_ptr, "DispatchStub: missing HIP kernel");
       return (*hip_dispatch_ptr)(std::forward<ArgTypes>(args)...);
@@ -110,10 +113,12 @@ struct CAFFE2_API DispatchStub<rT (*)(Args...), T> {
   std::atomic<FnPtr> cpu_dispatch_ptr;
   FnPtr cuda_dispatch_ptr;
   FnPtr hip_dispatch_ptr;
+  FnPtr habana_dispatch_ptr;
 #else
   std::atomic<FnPtr> cpu_dispatch_ptr{nullptr};
   FnPtr cuda_dispatch_ptr = nullptr;
   FnPtr hip_dispatch_ptr = nullptr;
+  FnPtr habana_dispatch_ptr = nullptr;
 #endif
   static FnPtr DEFAULT;
 #ifdef HAVE_AVX_CPU_DEFINITION
@@ -137,6 +142,14 @@ struct RegisterHIPDispatch {
   RegisterHIPDispatch(DispatchStub<FnPtr, T>& stub, FnPtr value) {
     // TODO: make this point at hip_dispatch_ptr
     stub.cuda_dispatch_ptr = value;
+  }
+};
+
+template <typename FnPtr, typename T>
+struct RegisterHABANADispatch {
+  RegisterHABANADispatch(DispatchStub<FnPtr, T>& stub, FnPtr value) {
+    // TODO: make this point at habana_dispatch_ptr
+    stub.habana_dispatch_ptr = value;
   }
 };
 } // anonymous namespace

@@ -142,7 +142,7 @@ Reducer::Reducer(
 
       for (size_t i = 0; i < replica_count; i++) {
         at::TensorOptions options;
-        options = options.dtype(at::kInt);
+        options = options.dtype(at::kFloat);
 
         if (replicas_[i][0].is_cuda()) {
           at::DeviceGuard g(replicas_[i][0].device());
