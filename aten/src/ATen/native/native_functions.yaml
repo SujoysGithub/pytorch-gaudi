@@ -6754,3 +6754,15 @@
   python_module: nn
   dispatch:
     CPU: _test_optional_floatlist
+
+- func: embedding_bag_sum_fwd(Tensor input, Tensor indices_fwd, Tensor offsets_fwd, Tensor valid_count_fwd, Tensor indices_bwd, Tensor offsets_bwd, Tensor valid_count_bwd, Tensor grad_weight) -> Tensor
+  dispatch:
+    CPU: embedding_bag_sum_fwd_cpu
+
+- func: embedding_bag_sum_bwd.out(Tensor input, Tensor indices_bwd, Tensor offsets_bwd, Tensor valid_count_bwd, *, Tensor(a!) out) -> Tensor(a!)
+  dispatch:
+    CPU: embedding_bag_sum_bwd_out_cpu
+
+- func: embedding_bag_sum_bwd(Tensor input, Tensor indices_bwd, Tensor offsets_bwd, Tensor valid_count_bwd) -> Tensor
+  dispatch:
+    CPU: embedding_bag_sum_bwd_cpu

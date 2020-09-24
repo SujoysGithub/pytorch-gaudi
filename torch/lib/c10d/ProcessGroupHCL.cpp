@@ -248,6 +248,31 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupHCL::reduce(
                                 });
 }
 
+std::shared_ptr<ProcessGroup::Work> ProcessGroupHCL::alltoall_base(
+    at::Tensor& outputTensor,
+    at::Tensor& inputTensor,
+    std::vector<int64_t>& outputSplitSizes,
+    std::vector<int64_t>& inputSplitSizes,
+    const AllToAllOptions& opts) {
+  std::vector<at::Tensor> inputTensors;
+  std::vector<at::Tensor> outputTensors;
+  inputTensors.push_back(inputTensor);
+  outputTensors.push_back(outputTensor);
+  return hclcollective(
+    inputTensors,
+    outputTensors,
+    [&](at::Tensor& input,
+    at::Tensor& output,
+    hcl_communicator& hcl_comm) {
+                                   return hcl_comm.alltoall(
+                                   (synapse_helpers::device_ptr)input.data_ptr(),
+                                   (synapse_helpers::device_ptr)output.data_ptr(),
+                                   input.numel(),
+                                   getHCLDataType(input.scalar_type()));
+                                });
+}
+
+
 std::shared_ptr<ProcessGroup::Work> ProcessGroupHCL::allgather(
     std::vector<std::vector<at::Tensor>>& outputTensors,
     std::vector<at::Tensor>& inputTensors,

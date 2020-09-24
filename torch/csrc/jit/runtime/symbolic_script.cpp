@@ -244,15 +244,15 @@ const std::vector<std::string> functions = {
             return grad_input
 
         # TODO: fix torch.zeros(sizes, grad.options()) before enabling select, topk, kthvalue
-        # def select(self,
-        #            dim: int,
-        #            index: int):
-        #     self_size = self.size()
-        #     def backward(grad_output):
-        #         grad_self = AD_select_backward(grad_output, self_size, dim, index)
-        #         return grad_self, None, None
+        def select(self,
+                    dim: int,
+                    index: int):
+             self_size = self.size()
+             def backward(grad_output):
+                 grad_self = AD_select_backward(grad_output, self_size, dim, index)
+                 return grad_self, None, None
 
-        #     return torch.select(self, dim, index), backward
+             return torch.select(self, dim, index), backward
 
         def AD_slice_backward(grad,
                               input_sizes: List[int],
@@ -548,12 +548,11 @@ const std::vector<std::string> functions = {
         def cat(tensors: List[Tensor],
                 dim: int):
             size = len(tensors)
-            split_sizes = [0] * size
-            for i in range(size):
-                if tensors[i].numel() > 0:
-                    split_sizes[i] = tensors[i].size()[dim]
 
             def backward(grad_output):
+                split_sizes = [0] * size
+                for i in range(size):
+                    split_sizes[i] = int(tensors[i].numel() > 0) * tensors[i].size()[dim]
                 grad_tensors = torch.split_with_sizes(grad_output, split_sizes, dim)
                 return grad_tensors, None
 
@@ -671,19 +670,20 @@ const std::vector<std::string> functions = {
             return torch.t(self), backward
 
         def to_0(self,
-                 device: Optional[Device],
-                 dtype: Optional[int],
+                 device: Device,
+                 dtype: int,
                  non_blocking: bool,
-                 copy: bool):
+                 copy: bool,
+                 memory_format: Optional[int]):
             self_device = self.device
             self_dtype = self.dtype
             if device is not None:
-                result = self.to(device, dtype=dtype, non_blocking=non_blocking, copy=copy)
+                result = self.to(device, dtype=dtype, non_blocking=non_blocking, copy=copy, memory_format=memory_format)
             else:
-                result = self.to(dtype, non_blocking=non_blocking, copy=copy)
+                result = self.to(dtype, non_blocking=non_blocking, copy=copy, memory_format=memory_format)
             def backward(grad_output):
-                grad_self = grad_output.to(self_device, dtype=self_dtype, non_blocking=non_blocking, copy=copy)
-                return grad_self, None, None, None, None
+                grad_self = grad_output.to(self_device, dtype=self_dtype, non_blocking=non_blocking, copy=copy, memory_format=memory_format)
+                return grad_self, None, None, None, None, None
 
             return result, backward
 
@@ -691,13 +691,14 @@ const std::vector<std::string> functions = {
         def to_1(self,
                  dtype: int,
                  non_blocking: bool,
-                 copy: bool):
+                 copy: bool,
+                 memory_format: Optional[int]):
             self_dtype = self.dtype
             def backward(grad_output):
-                grad_self = grad_output.to(self_dtype, non_blocking, copy)
-                return grad_self, None, None, None
+                grad_self = grad_output.to(self_dtype, non_blocking, copy, memory_format)
+                return grad_self, None, None, None, None
 
-            return self.to(dtype=dtype, non_blocking=non_blocking, copy=copy), backward
+            return self.to(dtype=dtype, non_blocking=non_blocking, copy=copy, memory_format=memory_format), backward
 
         def to_2(self,
                  other,
@@ -724,6 +725,15 @@ const std::vector<std::string> functions = {
                 return grad_output.reshape(self_size), None
 
             return torch.view(self, size), backward
+
+        def flatten(self,
+                    start_dim: int,
+                    end_dim: int):
+            self_size = self.size()
+            def backward(grad_output):
+                return grad_output.reshape(self_size), None, None
+
+            return torch.flatten(self, start_dim, end_dim), backward
     )",
     R"(
         def AD_sizes_if_not_equal_multi_0(t1, t2, res):
@@ -999,16 +1009,16 @@ const std::vector<std::string> functions = {
                        eps : float,
                        cudnn_enabled : bool):
 
-            output, save1, save2, reserve, impl_idx = torch._batch_norm_impl_index(
+            output, save1, save2 = torch.native_batch_norm(
                 input, weight, bias, running_mean, running_var, training,
-                momentum, eps, cudnn_enabled)
+                momentum, eps)
             has_weight = weight is not None
             has_bias = bias is not None
 
             def backward(grad_output):
-                dinput, dweight, dbias = torch._batch_norm_impl_index_backward(
-                    impl_idx, input, grad_output, weight, running_mean, running_var,
-                    save1, save2, training, eps, [True, has_weight, has_bias], reserve)
+                dinput, dweight, dbias = torch.native_batch_norm_backward(
+                    grad_output, input, weight, running_mean, running_var,
+                    save1, save2, training, eps, [True, has_weight, has_bias])
                 return dinput, dweight, dbias, None, None, None, None, None, None
 
             return output, backward
@@ -1169,6 +1179,13 @@ const std::vector<std::string> functions = {
                 return grad_weight, None, None, None, None
 
             return torch.embedding(weight, indices, padding_idx, scale_grad_by_freq, sparse), backward
+
+        def embedding_bag_sum_fwd(input, indices_fwd, offsets_fwd, valid_count_fwd, indices_bwd, offsets_bwd, valid_count_bwd, grad_weight):
+            def backward(grad_output):
+                grad_input = torch.embedding_bag_sum_bwd(grad_output, indices_bwd, offsets_bwd, valid_count_bwd, out=grad_weight)
+                return input, None, None, None, None, None, None, None
+
+            return torch.embedding_bag_sum_fwd(input, indices_fwd, offsets_fwd, valid_count_fwd, indices_bwd, offsets_bwd, valid_count_bwd, grad_weight), backward
 
         def log_softmax(self, dim: int, dtype: Optional[int]):
             result = torch.log_softmax(self, dim, dtype)

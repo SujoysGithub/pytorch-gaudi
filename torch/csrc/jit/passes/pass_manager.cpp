@@ -13,6 +13,11 @@ std::vector<GraphPassEntry>& getCustomPrePasses() {
   return passes;
 }
 
+std::vector<GraphPassEntry>& getCustomPreDiffPasses() {
+  static std::vector<GraphPassEntry> passes;
+  return passes;
+}
+
 GraphPassNameType registerPostPass(GraphPass p) {
   getCustomPostPasses().emplace_back(GraphPassEntry{std::move(p), graphPassID});
   return graphPassID++;
@@ -62,6 +67,10 @@ void clearAllPrePasses() {
 // LEGACY CALL
 RegisterPostPass::RegisterPostPass(GraphPass p) {
   registerPass(p);
+}
+
+RegisterPreDiffPass::RegisterPreDiffPass(GraphPass p) {
+  getCustomPreDiffPasses().emplace_back(GraphPassEntry{std::move(p), graphPassID});
 }
 
 } // namespace jit

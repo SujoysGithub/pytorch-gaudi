@@ -37,6 +37,8 @@ TORCH_API std::vector<std::pair<GraphPass, GraphPassNameType>>&
 getCustomPostPasses();
 TORCH_API std::vector<std::pair<GraphPass, GraphPassNameType>>&
 getCustomPrePasses();
+TORCH_API std::vector<std::pair<GraphPass, GraphPassNameType>>&
+getCustomPreDiffPasses();
 
 TORCH_API GraphPassNameType registerPostPass(GraphPass p);
 TORCH_API GraphPassNameType registerPrePass(GraphPass p);
@@ -52,6 +54,10 @@ TORCH_API void clearAllPrePasses();
 // LEGACY CALL
 struct TORCH_API RegisterPostPass {
   RegisterPostPass(GraphPass p);
+};
+
+struct TORCH_API RegisterPreDiffPass {
+  RegisterPreDiffPass(GraphPass p);
 };
 
 using RegisterPass = RegisterPostPass;

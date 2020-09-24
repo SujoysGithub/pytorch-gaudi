@@ -859,6 +859,55 @@ Tensor _embedding_bag_per_sample_weights_backward_cpu(
   );
 }
 
+Tensor embedding_bag_sum_fwd_cpu(
+    const Tensor& input,
+    const Tensor& indices_fwd,
+    const Tensor& offsets_fwd,
+    const Tensor& valid_count_fwd,
+    const Tensor& indices_bwd,
+    const Tensor& offsets_bwd,
+    const Tensor& valid_count_bwd, const Tensor& grad_weight) {
+  // Dummy implementation
+  (void)input;
+  (void)indices_fwd;
+  (void)offsets_fwd;
+  (void)valid_count_fwd;
+  (void)indices_bwd;
+  (void)offsets_bwd;
+  (void)valid_count_bwd;
+  (void) grad_weight;
+
+  return input;
+}
+Tensor embedding_bag_sum_bwd_cpu(
+    const Tensor& input,
+    const Tensor& indices_bwd,
+    const Tensor& offsets_bwd,
+    const Tensor& valid_count_bwd) {
+  // Dummy implementation
+  (void)input;
+  (void)indices_bwd;
+  (void)offsets_bwd;
+  (void)valid_count_bwd;
+
+  return input;
+}
+
+Tensor& embedding_bag_sum_bwd_out_cpu(
+    Tensor& out,
+    const Tensor& input,
+    const Tensor& indices_bwd,
+    const Tensor& offsets_bwd,
+    const Tensor& valid_count_bwd) {
+    // Dummy implementation
+  (void)input;
+  (void)indices_bwd;
+  (void)offsets_bwd;
+  (void)valid_count_bwd;
+
+  return out;
+}
+
 Tensor _embedding_bag_sparse_backward(
     const Tensor &grad_, const Tensor &indices, const Tensor &offsets,
     const Tensor &offset2bag, const Tensor &bag_size_, int64_t num_weights,

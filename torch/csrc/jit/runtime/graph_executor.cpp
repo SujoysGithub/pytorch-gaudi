@@ -146,6 +146,12 @@ struct CaptureList {
     }
   }
 
+  void release_variables() {
+    for (auto& var_capture_ : var_captures_) {
+      var_capture_.reset_data();
+    }
+  }
+
  private:
   enum Capture : uint8_t {
     CAPTURE_TENSOR,
@@ -296,6 +302,10 @@ struct DifferentiableGraphBackward : public autograd::Node {
       input_instructions_.pushTensor();
       addInputVariable(v.toTensor());
     }
+  }
+
+  void release_variables() override {
+    captures_.release_variables();
   }
 
  private:
@@ -689,6 +699,12 @@ struct GraphExecutorImpl : public GraphExecutorImplBase {
     //          symbolically differentiable subgraphs for further optimizations.
     // Phase 5. Apply non-differentiable optimizations to the graphs we've found
     //          (or the whole graph if we know we won't need its derivative).
+
+    // Run custom pass on pre-Diff graph
+    for (const auto& passPair : getCustomPreDiffPasses()) {
+      passPair.first(opt_graph);
+    }
+
     if (needsGradient(opt_graph)) {
       auto diff_nodes = CreateAutodiffSubgraphs(
           opt_graph,
